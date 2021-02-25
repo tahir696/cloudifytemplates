@@ -1,0 +1,688 @@
+#######################################################################
+#
+#   Copyright (c) 2021 ECT
+#   tahir.masood@ect-telecoms.de
+#
+# All rights reserved. This program and the accompanying materials
+# are made available under the terms of the Apache License, Version 2.0
+# which accompanies this distribution, and is available at
+# http://www.apache.org/licenses/LICENSE-2.0
+########################################################################
+
+########################################################################
+# This Blueprint deploy the ECT Application on an openstack environment
+########################################################################
+tosca_definitions_version: cloudify_dsl_1_3
+
+description: >
+  This blueprint installs an ECT application using Cloudify on Openstack.
+
+imports:
+  - https://cloudify.co/spec/cloudify/5.1.0/types.yaml
+  - plugin:cloudify-openstack-plugin?version= >=3.2.2
+  - plugin:cloudify-ansible-plugin
+  - plugin:cloudify-utilities-plugin?version= >=1.22.1
+inputs:
+
+  region:
+    type: string
+    description: The Openstack region.
+
+  user_domain_name:
+    description: Openstack user domain name.
+    type: string
+    default:  default
+
+  project_domain_name:
+    description: The name of your OpenStack project.
+    type: string
+    default:  default
+
+  dns_image_id:
+    type: string
+    description: Image ID of the DNS Image
+
+  database_image_id:
+    type: string
+    description: Image ID of the database Image
+
+  # webserver_image_id:
+  #   type: string
+  #   description: Image ID of the webserver Image
+
+  # sipgw_image_id:
+  #   type: string
+  #   description: Image ID of the sipgateway Image
+  #
+  # mediagw_image_id:
+  #   type: string
+  #   description: Image ID of the mediagateway Image
+  #
+  # loadbalancer_image_id:
+  #   type: string
+  #   description: Image ID of the loadbalancer Image
+  #
+  # apiserver_image_id:
+  #   type: string
+  #   description: Image ID of the apiserver Image
+  #
+  # appserver_image_id:
+  #   type: string
+  #   description: Image ID of the applicationserver Image
+  #
+  # fileserver_image_id:
+  #   type: string
+  #   description: Image ID of the fileserver Image
+  #
+  database_flavor_id:
+    type: string
+    description: Flavor ID of the agent VM's (RAM >= 16 GB root disk >= 196GB )
+
+  base_flavor_id:
+      type: string
+      description: Flavor ID of the agent VM's (RAM >= 4 GB Disk >= 64GB)
+
+  agent_user:
+    type: string
+    default: ect
+    description: User for connecting to agent VM's
+
+  network_name:
+    type: string
+    description: Openstack private network name the new server will be connected to
+
+  external_network_name:
+    type: string
+    description: Network that will be the floating IP
+  key_pair_name:
+    default: ect-key
+    description: Openstack key pair name of the key to associate with the new server
+
+  # database_cluster_size:
+  #   type: integer
+  #   description: number of database instance
+  #   default: 1
+  #
+  # webserver_cluster_size:
+  #   type: integer
+  #   description: number of webserver instance
+  #   default: 1
+  #
+  # sipgw_cluster_size:
+  #   type: integer
+  #   description: number of sipgateway instance
+  #   default: 1
+  #
+  # mediagw_cluster_size:
+  #   type: integer
+  #   description: number of mediagateway instance
+  #   default: 1
+  #
+  # loadbalancer_cluster_size:
+  #   type: integer
+  #   description: number of loadbalancer instance
+  #   default: 1
+  #
+  # apiserver_cluster_size:
+  #   type: integer
+  #   description: number of api server instance
+  #   default: 1
+  #
+  # appserver_cluster_size:
+  #   type: integer
+  #   description: number of application server instance
+  #   default: 1
+  #
+  # fileserver_cluster_size:
+  #   type: integer
+  #   description: number of fileserver server instance
+  #   default: 1
+
+
+dsl_definitions:
+
+  openstack_config: &openstack_config
+    auth_url: { get_secret: openstack_auth_url }
+    region_name: { get_input: region }
+    project_name: { get_secret: openstack_tenant_name }
+    username: { get_secret: openstack_username }
+    password: { get_secret: openstack_password }
+    user_domain_name: { get_input: user_domain_name }
+    project_domain_name: { get_input: project_domain_name }
+
+node_templates:
+
+  bind_host:
+    type: cloudify.nodes.openstack.Server
+    properties:
+      client_config: *openstack_config
+      agent_config:
+        install_method: none
+      resource_config:
+        name: bind_dns
+        image_id: { get_input: dns_image_id }
+        flavor_id: { get_input: base_flavor_id }
+      use_public_ip: true
+    relationships:
+      - type: cloudify.relationships.openstack.server_connected_to_port
+        target: dns_port
+  dns_port:
+    type: cloudify.nodes.openstack.Port
+    properties:
+      client_config: *openstack_config
+      resource_config:
+        network_id: { get_input: network_name }
+    relationships:
+      - type: cloudify.relationships.openstack.port_connected_to_security_group
+        target: dns_security_group
+      - type: cloudify.relationships.openstack.port_connected_to_floating_ip
+        target: dns_floating_ip
+
+  database_host:
+    type: cloudify.nodes.openstack.Server
+    properties:
+      client_config: *openstack_config
+      agent_config:
+        install_method: none
+      resource_config:
+        name: database
+        image_id: { get_input: database_image_id }
+        flavor_id: { get_input: database_flavor_id }
+      use_public_ip: true
+    relationships:
+      - type: cloudify.relationships.openstack.server_connected_to_port
+        target: database_port
+  database_port:
+    type: cloudify.nodes.openstack.Port
+    properties:
+      client_config: *openstack_config
+      resource_config:
+        network_id: { get_input: network_name }
+    relationships:
+      - type: cloudify.relationships.openstack.port_connected_to_security_group
+        target: database_security_group
+      - type: cloudify.relationships.openstack.port_connected_to_floating_ip
+        target: database_floating_ip
+
+  # webserver_host:
+  #   type: cloudify.nodes.openstack.Server
+  #   properties:
+  #     client_config: *openstack_config
+  #     agent_config:
+  #       install_method: none
+  #     resource_config:
+  #       name: webserver
+  #       image_id: { get_input: webserver_image_id }
+  #       flavor_id: { get_input: base_flavor_id }
+  #     use_public_ip: true
+  #   relationships:
+  #     - type: cloudify.relationships.openstack.server_connected_to_port
+  #       target: webserver_port
+  # webserver_port:
+  #   type: cloudify.nodes.openstack.Port
+  #   properties:
+  #     client_config: *openstack_config
+  #     resource_config:
+  #       network_id: { get_input: network_name }
+  #   relationships:
+  #     - type: cloudify.relationships.openstack.port_connected_to_security_group
+  #       target: webserver_security_group
+  #     - type: cloudify.relationships.openstack.port_connected_to_floating_ip
+  #       target: webserver_floating_ip
+  #
+  # sipgw_host:
+  #   type: cloudify.nodes.openstack.Server
+  #   properties:
+  #     client_config: *openstack_config
+  #     agent_config:
+  #       install_method: none
+  #     resource_config:
+  #       name: sipgw
+  #       image_id: { get_input: sipgw_image_id }
+  #       flavor_id: { get_input: base_flavor_id }
+  #     use_public_ip: true
+  #   relationships:
+  #     - type: cloudify.relationships.openstack.server_connected_to_port
+  #       target: sipgw_port
+  # sipgw_port:
+  #   type: cloudify.nodes.openstack.Port
+  #   properties:
+  #     client_config: *openstack_config
+  #     resource_config:
+  #       network_id: { get_input: network_name }
+  #   relationships:
+  #     - type: cloudify.relationships.openstack.port_connected_to_security_group
+  #       target: sipgw_security_group
+  #     - type: cloudify.relationships.openstack.port_connected_to_floating_ip
+  #       target: sipgw_floating_ip
+  #
+  # mediagw_host:
+  #   type: cloudify.nodes.openstack.Server
+  #   properties:
+  #     client_config: *openstack_config
+  #     agent_config:
+  #       install_method: none
+  #     resource_config:
+  #       name: mediagw
+  #       image_id: { get_input: mediagw_image_id }
+  #       flavor_id: { get_input: base_flavor_id }
+  #     use_public_ip: true
+  #   relationships:
+  #     - type: cloudify.relationships.openstack.server_connected_to_port
+  #       target: mediagw_port
+  # mediagw_port:
+  #   type: cloudify.nodes.openstack.Port
+  #   properties:
+  #     client_config: *openstack_config
+  #     resource_config:
+  #       network_id: { get_input: network_name }
+  #   relationships:
+  #     - type: cloudify.relationships.openstack.port_connected_to_security_group
+  #       target: mediagw_security_group
+  #     - type: cloudify.relationships.openstack.port_connected_to_floating_ip
+  #       target: mediagw_floating_ip
+  #
+  # loadbalancer_host:
+  #   type: cloudify.nodes.openstack.Server
+  #   properties:
+  #     client_config: *openstack_config
+  #     agent_config:
+  #       install_method: none
+  #     resource_config:
+  #       name: loadbalancer
+  #       image_id: { get_input: loadbalancer_image_id }
+  #       flavor_id: { get_input: base_flavor_id }
+  #     use_public_ip: true
+  #   relationships:
+  #     - type: cloudify.relationships.openstack.server_connected_to_port
+  #       target: loadbalancer_port
+  # loadbalancer_port:
+  #   type: cloudify.nodes.openstack.Port
+  #   properties:
+  #     client_config: *openstack_config
+  #     resource_config:
+  #       network_id: { get_input: network_name }
+  #   relationships:
+  #     - type: cloudify.relationships.openstack.port_connected_to_security_group
+  #       target: loadbalancer_security_group
+  #     - type: cloudify.relationships.openstack.port_connected_to_floating_ip
+  #       target: loadbalancer_floating_ip
+  #
+  # apiserver_host:
+  #   type: cloudify.nodes.openstack.Server
+  #   properties:
+  #     client_config: *openstack_config
+  #     agent_config:
+  #       install_method: none
+  #     resource_config:
+  #       name: apiserver
+  #       image_id: { get_input: apiserver_image_id }
+  #       flavor_id: { get_input: base_flavor_id }
+  #     use_public_ip: true
+  #   relationships:
+  #     - type: cloudify.relationships.openstack.server_connected_to_port
+  #       target: apiserver_port
+  # apiserver_port:
+  #   type: cloudify.nodes.openstack.Port
+  #   properties:
+  #     client_config: *openstack_config
+  #     resource_config:
+  #       network_id: { get_input: network_name }
+  #   relationships:
+  #     - type: cloudify.relationships.openstack.port_connected_to_security_group
+  #       target: apiserver_security_group
+  #     - type: cloudify.relationships.openstack.port_connected_to_floating_ip
+  #       target: apiserver_floating_ip
+  #
+  # appserver_host:
+  #   type: cloudify.nodes.openstack.Server
+  #   properties:
+  #     client_config: *openstack_config
+  #     agent_config:
+  #       install_method: none
+  #     resource_config:
+  #       name: appserver
+  #       image_id: { get_input: appserver_image_id }
+  #       flavor_id: { get_input: base_flavor_id }
+  #     use_public_ip: true
+  #   relationships:
+  #     - type: cloudify.relationships.openstack.server_connected_to_port
+  #       target: appserver_port
+  # appserver_port:
+  #   type: cloudify.nodes.openstack.Port
+  #   properties:
+  #     client_config: *openstack_config
+  #     resource_config:
+  #       network_id: { get_input: network_name }
+  #   relationships:
+  #     - type: cloudify.relationships.openstack.port_connected_to_security_group
+  #       target: appserver_security_group
+  #     - type: cloudify.relationships.openstack.port_connected_to_floating_ip
+  #       target: appserver_floating_ip
+  #
+  # fileserver_host:
+  #   type: cloudify.nodes.openstack.Server
+  #   properties:
+  #     client_config: *openstack_config
+  #     agent_config:
+  #       install_method: none
+  #     resource_config:
+  #       name: fileserver
+  #       image_id: { get_input: fileserver_image_id }
+  #       flavor_id: { get_input: base_flavor_id }
+  #     use_public_ip: true
+  #   relationships:
+  #     - type: cloudify.relationships.openstack.server_connected_to_port
+  #       target: fileserver_port
+  # fileserver_port:
+  #   type: cloudify.nodes.openstack.Port
+  #   properties:
+  #     client_config: *openstack_config
+  #     resource_config:
+  #       network_id: { get_input: network_name }
+  #   relationships:
+  #     - type: cloudify.relationships.openstack.port_connected_to_security_group
+  #       target: fileserver_security_group
+  #     - type: cloudify.relationships.openstack.port_connected_to_floating_ip
+  #       target: fileserver_floating_ip
+
+
+  # external-network:
+  #   type: cloudify.nodes.openstack.Network
+  #   properties:
+  #     client_config: *openstack_config
+  #     use_external_resource: true
+  #     resource_config:
+  #       name: { get_input: external_network_name }
+  #       # kwargs:
+  #       #   routing:
+  #       #     external: true
+
+  dns_floating_ip:
+    type: cloudify.nodes.openstack.FloatingIP
+    properties:
+      client_config: *openstack_config
+      resource_config:
+        floating_network_name: { get_input: external_network_name }
+    # relationships:
+    #   - type: cloudify.relationships.connected_to
+    #     target: external-network
+
+  database_floating_ip:
+    type: cloudify.nodes.openstack.FloatingIP
+    properties:
+      client_config: *openstack_config
+      resource_config:
+        floating_network_name: { get_input: external_network_name }
+
+    # relationships:
+    #   - type: cloudify.relationships.connected_to
+    #     target: external-network
+
+  # webserver_floating_ip:
+  #   type: cloudify.nodes.openstack.FloatingIP
+  #   properties:
+  #     client_config: *openstack_config
+  #     resource_config:
+  #       floating_network_name: { get_input: external_network_name }
+  #
+  # sipgw_floating_ip:
+  #   type: cloudify.nodes.openstack.FloatingIP
+  #   properties:
+  #     client_config: *openstack_config
+  #     resource_config:
+  #       floating_network_name: { get_input: external_network_name }
+  #
+  # mediagw_floating_ip:
+  #   type: cloudify.nodes.openstack.FloatingIP
+  #   properties:
+  #     client_config: *openstack_config
+  #     resource_config:
+  #       floating_network_name: { get_input: external_network_name }
+  #
+  # loadbalancer_floating_ip:
+  #   type: cloudify.nodes.openstack.FloatingIP
+  #   properties:
+  #     client_config: *openstack_config
+  #     resource_config:
+  #       floating_network_name: { get_input: external_network_name }
+  #
+  # apiserver_floating_ip:
+  #   type: cloudify.nodes.openstack.FloatingIP
+  #   properties:
+  #     client_config: *openstack_config
+  #     resource_config:
+  #       floating_network_name: { get_input: external_network_name }
+  #
+  # appserver_floating_ip:
+  #   type: cloudify.nodes.openstack.FloatingIP
+  #   properties:
+  #     client_config: *openstack_config
+  #     resource_config:
+  #       floating_network_name: { get_input: external_network_name }
+  #
+  # fileserver_floating_ip:
+  #   type: cloudify.nodes.openstack.FloatingIP
+  #   properties:
+  #     client_config: *openstack_config
+  #     resource_config:
+  #       floating_network_name: { get_input: external_network_name }
+
+    # relationships:
+    #   - type: cloudify.relationships.connected_to
+    #     target: external-network
+
+
+  dns_security_group:
+    type: cloudify.nodes.openstack.SecurityGroup
+    properties:
+      client_config: *openstack_config
+      resource_config:
+        name: dns_security_group
+        description: 'dns_security_group'
+      security_group_rules:
+        - direction: ingress
+          protocol: tcp
+          port_range_min: 22
+          port_range_max: 22
+        - direction: ingress
+          protocol: tcp
+          port_range_min: 80
+          port_range_max: 80
+
+
+  database_security_group:
+    type: cloudify.nodes.openstack.SecurityGroup
+    properties:
+      client_config: *openstack_config
+      resource_config:
+        name: database_security_group
+        description: 'database_security_group'
+      security_group_rules:
+        - direction: ingress
+          protocol: tcp
+          port_range_min: 22
+          port_range_max: 22
+        - direction: ingress
+          protocol: tcp
+          port_range_min: 80
+          port_range_max: 80
+
+  # webserver_security_group:
+  #   type: cloudify.nodes.openstack.SecurityGroup
+  #   properties:
+  #     client_config: *openstack_config
+  #     resource_config:
+  #       name: webserver_security_group
+  #       description: 'webserver_security_group'
+  #     security_group_rules:
+  #       - direction: ingress
+  #         protocol: tcp
+  #         port_range_min: 22
+  #         port_range_max: 22
+  #       - direction: ingress
+  #         protocol: tcp
+  #         port_range_min: 80
+  #         port_range_max: 80
+  #
+  # sipgw_security_group:
+  #   type: cloudify.nodes.openstack.SecurityGroup
+  #   properties:
+  #     client_config: *openstack_config
+  #     resource_config:
+  #       name: sipgw_security_group
+  #       description: 'sipgw_security_group'
+  #     security_group_rules:
+  #       - direction: ingress
+  #         protocol: tcp
+  #         port_range_min: 22
+  #         port_range_max: 22
+  #       - direction: ingress
+  #         protocol: tcp
+  #         port_range_min: 80
+  #         port_range_max: 80
+  #
+  # mediagw_security_group:
+  #   type: cloudify.nodes.openstack.SecurityGroup
+  #   properties:
+  #     client_config: *openstack_config
+  #     resource_config:
+  #       name: mediagw_security_group
+  #       description: 'mediagw_security_group'
+  #     security_group_rules:
+  #       - direction: ingress
+  #         protocol: tcp
+  #         port_range_min: 22
+  #         port_range_max: 22
+  #       - direction: ingress
+  #         protocol: tcp
+  #         port_range_min: 80
+  #         port_range_max: 80
+  #
+  # loadbalancer_security_group:
+  #   type: cloudify.nodes.openstack.SecurityGroup
+  #   properties:
+  #     client_config: *openstack_config
+  #     resource_config:
+  #       name: loadbalancer_security_group
+  #       description: 'loadbalancer_security_group'
+  #     security_group_rules:
+  #       - direction: ingress
+  #         protocol: tcp
+  #         port_range_min: 22
+  #         port_range_max: 22
+  #       - direction: ingress
+  #         protocol: tcp
+  #         port_range_min: 80
+  #         port_range_max: 80
+  #
+  # apiserver_security_group:
+  #   type: cloudify.nodes.openstack.SecurityGroup
+  #   properties:
+  #     client_config: *openstack_config
+  #     resource_config:
+  #       name: apiserver_security_group
+  #       description: 'apiserver_security_group'
+  #     security_group_rules:
+  #       - direction: ingress
+  #         protocol: tcp
+  #         port_range_min: 22
+  #         port_range_max: 22
+  #       - direction: ingress
+  #         protocol: tcp
+  #         port_range_min: 80
+  #         port_range_max: 80
+  #
+  # appserver_security_group:
+  #   type: cloudify.nodes.openstack.SecurityGroup
+  #   properties:
+  #     client_config: *openstack_config
+  #     resource_config:
+  #       name: appserver_security_group
+  #       description: 'appserver_security_group'
+  #     security_group_rules:
+  #       - direction: ingress
+  #         protocol: tcp
+  #         port_range_min: 22
+  #         port_range_max: 22
+  #       - direction: ingress
+  #         protocol: tcp
+  #         port_range_min: 80
+  #         port_range_max: 80
+  #
+  # fileserver_security_group:
+  #   type: cloudify.nodes.openstack.SecurityGroup
+  #   properties:
+  #     client_config: *openstack_config
+  #     resource_config:
+  #       name: fileserver_security_group
+  #       description: 'fileserver_security_group'
+  #     security_group_rules:
+  #       - direction: ingress
+  #         protocol: tcp
+  #         port_range_min: 22
+  #         port_range_max: 22
+  #       - direction: ingress
+  #         protocol: tcp
+  #         port_range_min: 80
+  #         port_range_max: 80
+
+
+  database:
+    type: cloudify.nodes.Root
+    interfaces:
+      cloudify.interfaces.lifecycle:
+        start:
+          implementation: ansible.cloudify_ansible.tasks.run
+          inputs:
+            site_yaml_path: dnsconfig/updateDNSsettings.yml
+            sources: { get_attribute: [ SELF, sources ] }
+            options_config:
+              skip_tags: setup
+            run_data:
+              DNSserver_ip: { get_attribute: [dns_floating_ip, floating_ip_address] }
+    relationships:
+      - type: cloudify.relationships.contained_in
+        target: database_host
+        source_interfaces:
+          cloudify.interfaces.relationship_lifecycle:
+            preconfigure:
+              implementation: ansible.cloudify_ansible.tasks.ansible_requires_host
+              inputs:
+                group_name: database_cluster
+                host_config:
+                  ansible_host: { get_attribute: [database_floating_ip, floating_ip_address] }
+                  ansible_user: { get_input: agent_user }
+                  ansible_ssh_private_key_file: { get_secret: ect-key }
+                  ansible_become: true
+                  ansible_ssh_common_args: '-o StrictHostKeyChecking=no'
+groups:
+  vm_group:
+    members: [database,database_host,database_port,database_floating_ip]
+
+policies:
+  scale_policy2:
+    type: cloudify.policies.scaling
+    properties:
+      default_instances: 2
+    targets: [vm_group]
+
+outputs:
+  database_ip:
+    value: { get_attribute: [database_floating_ip, floating_ip_address] }
+  dns_ip:
+    value: { get_attribute: [dns_floating_ip, floating_ip_address] }
+  # webserver_ip:
+  #   value: { get_attribute: [webserver_floating_ip, floating_ip_address] }
+  # sipgw_ip:
+  #   value: { get_attribute: [sipgw_floating_ip, floating_ip_address] }
+  # mediagw_ip:
+  #   value: { get_attribute: [mediagw_floating_ip, floating_ip_address] }
+  # loadbalancer_ip:
+  #   value: { get_attribute: [loadbalancer_floating_ip, floating_ip_address] }
+  # apiserver_ip:
+  #   value: { get_attribute: [apiserver_floating_ip, floating_ip_address] }
+  # appserver_ip:
+  #   value: { get_attribute: [appserver_floating_ip, floating_ip_address] }
+  # fileserver_ip:
+  #   value: { get_attribute: [fileserver_floating_ip, floating_ip_address] }
